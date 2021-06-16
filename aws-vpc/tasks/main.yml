@@ -1,0 +1,178 @@
+- name: create VPC
+  ec2_vpc_net:
+    name: "{{ vpc_name }}"
+    cidr_block: "{{ vpc_cidr }}"
+    region: "{{ region }}"
+    state: present
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+  register: vpc
+
+- name: See VPC
+  debug:
+    var: vpc.vpc.id
+
+- name: Creating Public Subnet
+  ec2_vpc_subnet:
+   state: present
+   vpc_id: "{{ vpc.vpc.id }}"
+   region: "{{ region }}"
+   cidr: "{{ public_subnet_cidr }}"
+   az: "{{ public_subnet_az }}"
+   aws_access_key: "{{ aws_access_key }}"
+   aws_secret_key: "{{ aws_secret_key }}"
+   map_public: yes
+   resource_tags:
+     Name: "{{ public_subnet_name }}"
+  register: public_subnet
+
+- name: "Display public_subnet"
+  debug:
+    var: public_subnet
+
+- name: Creating Private Subnet
+  ec2_vpc_subnet:
+   state: present
+   vpc_id: "{{ vpc.vpc.id }}"
+   az: "{{ private_subnet_az }}"
+   region: "{{ region }}"
+   cidr: "{{ private_subnet_cidr }}"
+   aws_access_key: "{{ aws_access_key }}"
+   aws_secret_key: "{{ aws_secret_key }}"
+   resource_tags:
+     Name: "{{ private_subnet_name }}"
+  register: private_subnet
+
+- name: "Display private_subnet"
+  debug:
+    var: private_subnet
+
+
+- name: create IGW
+  ec2_vpc_igw:
+   vpc_id: "{{ vpc.vpc.id }}"
+   region: "{{ region }}"
+   aws_access_key: "{{ aws_access_key }}"
+   aws_secret_key: "{{ aws_secret_key }}"
+   state: "present"
+   tags:
+     Name: "{{ igw_name }}"
+  register: igw
+
+
+- name: "Display igw"
+  debug:
+    var: igw
+
+
+- name: Route IGW
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    subnets:
+      - "{{ public_subnet.subnet.id }}"
+    routes:
+      - dest: 0.0.0.0/0
+        gateway_id: "{{ igw.gateway_id  }}"
+    tags:
+      Name: "{{ public_route_name }}"
+
+- name: Create New Nat Gateway and allocate new EIP if a nat gateway does not yet exist in the subnet.
+  ec2_vpc_nat_gateway:
+    state: present
+    subnet_id: "{{ public_subnet.subnet.id }}"
+    wait: yes
+    region: "{{ region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    if_exist_do_not_create: true
+  register: new_nat_gateway
+
+
+
+- name: "Display new_nat_gateway"
+  debug:
+     var: new_nat_gateway
+
+
+
+- name: Set up NAT-protected route table
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    tags:
+      Name: "{{ private_route_name }}"
+    subnets:
+      - "{{ private_subnet.subnet.id }}"
+    routes:
+      - dest: 0.0.0.0/0
+        gateway_id: "{{ new_nat_gateway.nat_gateway_id }}"
+
+- name: Create Security Group
+  ec2_group:
+    name: Ansible_SG
+    description: Ansible_SG
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    rules:
+      - proto: tcp
+        ports:
+        - 8080
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        ports:
+        - 22
+        cidr_ip: 0.0.0.0/0
+  register: security_group
+
+- name: create a new ec2 key pair
+  ec2_key:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    name: ec2_keypair
+    region: "{{ region }}"
+  register: keypair
+
+- name: Copy EC2 Private Key locally so it can be later on used to SSH into the instance
+  copy:
+   content: "{{ keypair.key.private_key }}"
+   dest: "{{ ec2_key_directory }}ec2_keypair.pem"
+  when: keypair.changed == true
+
+- name: Create EC2 server In Public Subnet
+  ec2:
+    image: ami-0007417ec76523a33
+    wait: yes
+    instance_type: t2.micro
+    region: "{{ region }}"
+    group_id: "{{ security_group.group_id }}"
+    vpc_subnet_id: "{{ public_subnet.subnet.id }}"
+    key_name: "{{ keypair.key.name  }}"
+    count_tag:
+      Name: JenkinsServer
+    exact_count: 1
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    assign_public_ip: yes
+
+
+- name: Create EC2 server In Private Subnet
+  ec2:
+    image: ami-0007417ec76523a33
+    wait: yes
+    instance_type: t2.micro
+    region: "{{ region }}"
+    group_id: "{{ security_group.group_id }}"
+    vpc_subnet_id: "{{ private_subnet.subnet.id }}"
+    key_name: "{{ keypair.key.name  }}"
+    count_tag:
+      Name: Dev Server
+    exact_count: 1
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"

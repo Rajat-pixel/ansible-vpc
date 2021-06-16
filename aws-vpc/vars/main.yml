@@ -1,0 +1,30 @@
+---
+# vars file for aws-vpc
+aws_access_key: "AKIA5IBZRDLEGFC7NZGT"
+aws_secret_key: "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"
+region: "ap-south-1"
+
+# VPC
+vpc_cidr: 172.20.0.0/16
+vpc_name: "Ansible VPC"
+
+# Subnet
+public_subnet_name: "Ansible Public Subnet"
+public_subnet_cidr: 172.20.10.0/24
+public_subnet_az: "ap-south-1a"
+private_subnet_name: "Ansible Private Subnet"
+private_subnet_cidr: 172.20.20.0/24
+#
+public_route_name: "Ansible Pubic Route Table"
+private_route_name : "Ansible Private Route Table"
+private_subnet_az: "ap-south-1b"
+# Internet Gateway Name
+igw_name: "Ansible Traffic IGW"
+
+securitygroup_name: "Ansible Security Group"
+ec2_tag: "Jenkins"
+#
+# #The local path to which we would save our EC2 Private Key
+ec2_key_directory: "/root/"
+keypair_name: "ec2_key_pair"
+#
